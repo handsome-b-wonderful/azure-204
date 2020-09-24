@@ -2,13 +2,153 @@
 
 ## Develop Solutions That Use Cosmos DB Storage
 
+* Responsive and available Database
+	* transparent replication, with management of regions
+	* high availability reads/writes
+	* transparent horizontal partitioning
+	* master-master replication with consistency choices:
+		* strong: linearizability guarentee; reads return most recent committed version
+		* bounded staleness: reads lag writes by at most K versions or T time interval, whichever is reached first. low write latency & total global order guarantee
+		* session: within a session like strong, outside session  but same region consistent prefix, writing to multiple regions: eventual.
+		* consistent prefix: reads never see out-of-order writes. 
+		* eventual: no ordering guarantee for reads. Replicas will eventually converge without further writes.
+
+* Geo-Redundancy: replicated version of database in a second (paired) region.
+* Multi-region Writes: enables concurrent writes to multiple regions
+
 ### Select the appropriate API for your solution
 
+Cosmos DB stores data in atom-record-sequence (ARS) format. Data is abstracted and projected as an API which you specify when creating the database.
+
+#### Core (SQL) API
+
+* Default API
+* Data view resembling a traditional NoSQL document store
+	* JSON documents
+	* SQL-like syntax:
+		* SELECT, FROM, WHERE, BETWEEN, COUNT, SUM, MIN, MAX, ORDER BY
+	* JS type system, expression evaluation and function invocation
+
+```JSON
+{
+    "id": "cc410485-e177-4cbf-95e1-708f7d5e9297",
+    "productName": "Industrial Saw",
+    "description": "Cuts through anything",
+    "supplier": "Hammer & Nail Inc",
+    "quantity": 261,
+    "unitCost": "$10.47",
+    "retailPrice": "$29.99",
+    "categories" : [
+        {"name": "hammers"},
+        {"name": "hand tools"}
+    ]
+}
+```
+
+```SQL
+SELECT c.productName FROM Items c
+```
+#### MongoDB API
+
+* MongoDB wire protocol (v3.2)
+* existging MongoDB client SDKs, drivers and tools
+
+```JS
+db.Items.find({},{productName:1,_id:0})
+```
+
+#### Cassandra API
+
+* Cassandra Query Language (CQL) (v4)
+* Appears as a partitioned row store
+		* CREATE KEYSPACE, CREATE TABLE, ALTER TABLE, USE, INSERT, SELECT, UPDATE, BATCH (Only unlogged commands are supported), DELETE
+
+```SQL
+CREATE TABLE Catalog.Items(id text, productName text, description text, supplier text, quantity int, unitCost float, retailPrice float, categories map<text,text>, primary key (id));
+
+SELECT id, productName FROM catalog.items
+```
+
+#### Azure Table API
+
+* Azure Table Storage with support for global distribution, high availability, scalable throughput
+* Adds support for secondary indices beyond Partition and Row keys
+	* Automatically indexes all properties with no index management
+
+
+```SQL
+SELECT i.productName FROM Items i
+```
+
+#### Gremlin (graph) API
+
+* Graph-based view over the data
+	* data as a vertex (individual item in DB)
+	* data as an edge (relationship between items in the database)
+* Traversal language for queries (Apache Tinkerpop Gremlin)
+
+Add three vertices (products) and 2 edges (related purchases):
+
+```JS
+g.addV('product').property('productName', 'Industrial Saw').property('description', 'Cuts through anything').property('quantity', 261)
+g.addV('product').property('productName', 'Belt Sander').property('description', 'Smoothes rough edges').property('quantity', 312)
+g.addV('product').property('productName', 'Cordless Drill').property('description', 'Bores holes').property('quantity', 647)
+
+g.V().hasLabel('product').has('productName', 'Industrial Saw').addE('boughtWith').to(g.V().hasLabel('product').has('productName', 'Belt Sander'))
+g.V().hasLabel('product').has('productName', 'Industrial Saw').addE('boughtWith').to(g.V().hasLabel('product').has('productName', 'Cordless Drill'))
+```
+
+* Queries return a  GraphSON result
+
+Query for products purchased with the industrial saw:
+
+```JS
+g.V().hasLabel('product').has('productName', 'Industrial Saw').outE('boughtWith')
+```
+Related purchase details:
+
+```JS
+g.V().hasLabel('product').has('productName', 'Industrial Saw').outE('boughtWith').inV().hasLabel('product')
+```
+
+#### Picking an API
+
+|| Core (SQL)  | MongoDB  |  Cassandra |  Azure Table |  Gremlin |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| New projects being created from scratch  | X  |   |   |   |   |
+| Existing MongoDB, Cassandra, Azure Table, or Gremlin data |   | X  | X  | X  | X  |
+| Analysis of the relationships between data  |   |   |   |   | X  |
+| All other scenarios  |  X |   |   |   |   |
+
+* Changing schemas benefit from traditional document stores
+* Relationship-focus good fit with a graph database
+* simple key-value pairs (traditionally Redis or Table API) good fit with Core (SQL) API with richer query language and improved indexing
 
 
 ### Implement partitioning schemes
 
+* All data in a partition has the same partition key
+* Continuing to add new data to a single server or a single partition will eventually run out of space
+* A parition strategy is a __scale out__ or __horizontal scaling__ strategy
+* partition key defines the strategy
+	* set when you create a container
+	* cannot be changed
+* organizes data into logical divisions
+	* try to even distribute operations across the database
+	* __Hot Partition__ is a single partition that receives many more requests than other partitions (creating a bottleneck)
+* Storage space for the data associated with a given partition key cannot exceed 20GB (one physical partition)
+	* to shrink use a composite key (ex: userID-date)
+* Larger number of values for a key => increased scalability
+* review top queries for best partition keys on read-heavy workloads (i.e. the WHERE clause values)
+* understand transactional needs of write-heavy workloads as the key is the scope for multi-document transactions
+* You cannot run stored procedures or triggers across multiple logical partitions
 
+#### Choosing a Partition Key
+
+0. Durable Value (cannot update a property if it is part of key)
+1. High Cardinality (good distribution)
+2. Even Distribution of Requests (RUs divided evenly across partitions)
+3. Even Distribution of Storage (fixed max partition size of 20GB)
 
 ### Interact with data using the appropriate SDK
 
@@ -19,6 +159,31 @@
 
 
 ### Create Cosmos DB containers
+
+Setting provisioned throughput at a container is the most frequent use-case.
+
+* Reserved only for the container
+* evenly distributed across physical partitions
+* Azure Cosmos database throughput is shared across all containers in the database.
+* Measurement of throughput: __request unit (RU)__
+* cost to read a 1KB item ~ 1 RU
+* Must provision in advance based on load estimate
+* Can change RU allocation up/down
+* Guarantees that the number of RUs for a given database operation for the same dataset is deterministic
+* When provisioned for a container the RUs are available in each region associated with your account.
+* Factors:
+	* Item size: size increase => increases RUs
+	* Item indexing: non-index option reduces RUs
+	* Item property count: increase # properties => increases RUs
+	* Indexed properties: index policy on container can limit properties indexed
+	* Data consistency: strong and bounded staleness consumer ~ 2x more read RUs vs relaxed consistency
+	* Query patterns: complexity of query impacts RUs consumed
+		* same query on same data == same # of RUs on repeated executions
+
+
+
+
+
 
 
 
@@ -36,6 +201,7 @@
 
 
 ### Change Feed Notifications
+
 
 
 
