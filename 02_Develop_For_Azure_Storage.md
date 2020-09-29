@@ -7,7 +7,7 @@
 	* high availability reads/writes
 	* transparent horizontal partitioning
 	* master-master replication with consistency choices:
-		* strong: linearizability guarentee; reads return most recent committed version
+		* strong: linearizability guarantee; reads return most recent committed version
 		* bounded staleness: reads lag writes by at most K versions or T time interval, whichever is reached first. low write latency & total global order guarantee
 		* session: within a session like strong, outside session  but same region consistent prefix, writing to multiple regions: eventual.
 		* consistent prefix: reads never see out-of-order writes. 
@@ -129,7 +129,7 @@ g.V().hasLabel('product').has('productName', 'Industrial Saw').outE('boughtWith'
 
 * All data in a partition has the same partition key
 * Continuing to add new data to a single server or a single partition will eventually run out of space
-* A parition strategy is a __scale out__ or __horizontal scaling__ strategy
+* A partition strategy is a __scale out__ or __horizontal scaling__ strategy
 * partition key defines the strategy
 	* set when you create a container
 	* cannot be changed
@@ -153,12 +153,69 @@ g.V().hasLabel('product').has('productName', 'Industrial Saw').outE('boughtWith'
 ### Interact with data using the appropriate SDK
 
 
+![Cosmos Entities](img/cosmos-entities.png)
+
+#### Tutorials
+
+[Tutorial: Develop an ASP.NET Core MVC web application with Azure Cosmos DB by using .NET SDK](https://docs.microsoft.com/en-us/azure/cosmos-db/sql-api-dotnet-application?WT.mc_id=thomasmaurer-blog-thmaure)
+
+[Tutorial: Build a .NET console app to manage data in Azure Cosmos DB SQL API account](https://docs.microsoft.com/en-us/azure/cosmos-db/sql-api-get-started?WT.mc_id=thomasmaurer-blog-thmaure)
+
+[Tutorial: Query Azure Cosmos DB by using the SQL API](https://docs.microsoft.com/en-us/azure/cosmos-db/tutorial-query-sql-api?WT.mc_id=thomasmaurer-blog-thmaure)
+
+[Tutorial: Set up Azure Cosmos DB global distribution using the SQL API](https://docs.microsoft.com/en-us/azure/cosmos-db/tutorial-global-distribution-sql-api?WT.mc_id=thomasmaurer-blog-thmaure&tabs=dotnetv2%2Capi-async)
+
+[Tutorial: Develop an ASP.NET Core MVC web application with Azure Cosmos DB by using .NET SDK](https://docs.microsoft.com/en-us/azure/cosmos-db/sql-api-dotnet-application)
+
 
 ### Set the appropriate consistency level for operations
 
+Distributed databases using replication for high availability, low latency or both make a trade-off between read consistency vs. availability, latency and throughput.
+
+Five defined consistency models:
+
+* strong: linearizability guarantee; reads return most recent committed version
+* bounded staleness: reads lag writes by at most K versions or T time interval, whichever is reached first. low write latency & total global order guarantee
+* session: within a session like strong, outside session  but same region consistent prefix, writing to multiple regions: eventual.
+* consistent prefix: reads never see out-of-order writes. 
+* eventual: no ordering guarantee for reads. Replicas will eventually converge without further writes.
+
+Configure default consistency at the account level and override it at the client or request level:
+
+````C#
+// Override consistency at the client level
+documentClient = new DocumentClient(new Uri(endpoint), authKey, connectionPolicy, ConsistencyLevel.Eventual);
+
+// Override consistency at the request level via request options
+RequestOptions requestOptions = new RequestOptions { ConsistencyLevel = ConsistencyLevel.Eventual };
+
+var response = await client.CreateDocumentAsync(collectionUri, document, requestOptions);
+````
+
+#### SQL API and Table API
+
+* Many real world scenarios map best to session consistency (default)
+* stronger consistency combined with low latency: bounded staleness
+* eventual consistency with some read consistency: consistent prefix
+* less strict consistency than session: consistent prefix
+* highest availability and lowest latency: eventual consistency
+* higher durability with performance: custom (multi master)
+
+#### Cassandra, MongoDB and Gremlin APIs
+
+* bounded staleness: reads on a previous write with bouuded lag
+* strong: like bounded with a window zero. Read on latest committed write
+* others: staleness is dependent on workload. High reads may be similar to strong; high writes like eventual
+
+Probabilistically Bounded Staleness (PBS) metric: shows how eventual your eventual consistency is when not using strong consistency. Probability (in milliseconds) of getting strongly consistent reads for a combination of write and read regions.
 
 
 ### Create Cosmos DB containers
+
+More Info:
+
+[Work with databases, containers, and items in Azure Cosmos DB](https://docs.microsoft.com/en-us/azure/cosmos-db/databases-containers-items?WT.mc_id=thomasmaurer-blog-thmaure)
+
 
 Setting provisioned throughput at a container is the most frequent use-case.
 
@@ -180,31 +237,188 @@ Setting provisioned throughput at a container is the most frequent use-case.
 	* Query patterns: complexity of query impacts RUs consumed
 		* same query on same data == same # of RUs on repeated executions
 
-
-
-
-
-
-
-
 ### Implement scaling (partitions, containers)
 
+#### Logical Partitions
 
+* set of items with the same partition key
+* defines scope of database transactions (snapshot isolation => all queries in transaction see same version)
+* no limit to the number of logical partitions in a container
+* logical partitions can store up to 20GB of data
+
+#### Physical Partitions
+
+* Internally one or more logical partitions is mapped to a single physical partition
+* managed by Azure Cosmos DB
+* Physical Partitions based on:
+	* Amount of provisioned throughput (10,000 RUs/sec for each physical partition)
+	* Total data storage (50GB per physical partition)
+* physical partition splits create new mappings between logical and physical partitions
+* Throughput provisioned for a container is divided evenly among physical partitions
+	* a partition key that doesn't distribute requests can create "hot" partitions that can rate-limit throughput
+* physical partitions viewable in metrics for the database / container 
+
+#### Replica Sets
+
+* Each physical partition consists of a set of replicas, also referred to as a replica set
+* Each replica set hosts an instance of the Azure Cosmos database engine
+* Replica sets make the data stored in the physical partition:
+	* durable
+	* highly available
+	* consistent
+* Each replica inherits physical partition's storage quota
+* Auto managed by Azure Cosmos DB
+* Most small Cosmos have a single physical partition with at least 4 replicas
+
+![Partition Mapping](img/storage-cosmos-logical-partitions.png)
+
+* You can set throughput to autoscale, then specify the maximum throughput. Container throughput will scale from 10% of MAX RU/s to the specified maximum.
+
+* when you enable autoscale on an existing database or container the starting value for max RU/s is determined by the system. You can change this after.
 
 ### Implement server-side programming including stored procedures, triggers, and change feed notifications
 
+* Azure Cosmos DB provides language-integrated, transactional execution of JavaScript for writing stored procedures, triggers and user-defined functions (UDFs)
+* write logic in JS that executes inside the DB engine
+* supports Azure portal, JS LINQ API, Cosmos DB SQL API client SDKs
 
-### Stored Procedures in Azure Cosmos DB
+#### Stored Procedures in Azure Cosmos DB
+
+* always scoped to a partition key, which __must__ be provided in the request (as per triggers)
+* application logic written in JavaScript
+* executed against a collection as a single transaction
+* executes in the scope of the DB session (same memory space) - ACID guarantee
+
+fixed schema
+
+````json
+{    
+   "id":"SimpleStoredProc",  
+   "body":"function (docToCreate, addedPropertyName, addedPropertyValue {getContext().getResponse().setBody('Hello World');}",  
+   "_rid":"hLEEAI1YjgcBAAAAAAAAgA==",  
+   "_ts":1408058682,  
+   "_self":"dbs\/hLEEAA==\/colls\/hLEEAI1Yjgc=\/sprocs\/hLEEAI1YjgcBAAAAAAAAgA==\/",  
+   "_etag":"00004100-0000-0000-0000-53ed453a0000"  
+}
+````
+
+* a user must have All access mode at the collection level to execute a stored procedure
+* available for essentially any code execution; examples: "create a document" or  "swap values between documents"
+
+Hello World example:
+
+```js
+var helloWorldStoredProc = {
+    id: "helloWorld",
+    serverScript: function () {
+        var context = getContext();
+        var response = context.getResponse();
+
+        response.setBody("Hello, World");
+    }
+}
+```
+
+* the `context` object provides access to all operations
+* you can use transactions inside a stored procedure
+* `asyc-await` with promises is available
+
+Examples here:
+
+[Writing Stored Procedures](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-write-stored-procedures-triggers-udfs#stored-procedures)
 
 
-### Triggers in Azure Cosmos DB
+#### Triggers in Azure Cosmos DB
+
+* always scoped to a partition key, which __must__ be provided in the request (as per stored procedures)
+* __triggerOperation__: Required. The type of operation that invokes the trigger. The acceptable values are: All, Insert, Replace and Delete
+* __triggerType__: Required. Specifies when the trigger is fired. The acceptable values are: Pre and Post
+
+* pre-triggers
+	* executed before modifying a database item
+	* pre-triggers cannot have any input parameters
+	* the `request` object in the trigger is used to manipulate the request message 
+
+```js
+function validateToDoItemTimestamp() {
+    var context = getContext();
+    var request = context.getRequest();
+
+    // item to be created in the current operation
+    var itemToCreate = request.getBody();
+
+    // validate properties
+    if (!("timestamp" in itemToCreate)) {
+        var ts = new Date();
+        itemToCreate["timestamp"] = ts.getTime();
+    }
+
+    // update the item that will be created
+    request.setBody(itemToCreate);
+}
+```
+
+* post-triggers
+	* executed after modifying a database item
+	* runs as part of the same transaction for the underlying item. An exception during the post-trigger execution will fail the whole transaction
 
 
-### Change Feed Notifications
+[Writing Triggers](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-write-stored-procedures-triggers-udfs#triggers)
 
+#### User Defined Functions (UDFs)
 
+* Used in queries for things like computed columns or custom business logic
 
+example: 
 
+```json
+{
+   "name": "Satya Nadella",
+   "country": "USA",
+   "income": 70000
+}
+```
+
+```js
+function tax(income) {
+
+        if(income == undefined)
+            throw 'no input';
+
+        if (income < 1000)
+            return income * 0.1;
+        else if (income < 10000)
+            return income * 0.2;
+        else
+            return income * 0.4;
+	}
+```
+
+#### Change Feed Notifications
+
+* listens to a container for any changes
+* outputs a sorted list of changed documents (in order modified)
+* changes are persisted, processed asynchronously and incrementally
+* distributed consumers for parallel processing
+* supported in all client SDKs and APIs __except__ Table API
+
+Current Behaviour
+
+* enabled by default
+* shows all inserts and updates; cannot filter
+* doesn't log deletes; use a soft delete flag (as update) to capture
+* sort order is the modified time (guaranteed per logical partition key)
+* eventual consistency can have duplicate events between subsequent change feed read operations
+* if a TTL (Time to Live) is set to -1 the change feed will persist forever
+* deleted items are removed from the change feed
+* the `_ts` is the modification or create timestamp and can be used for chronological comparison
+* only most recent change is available (intermediate changes may not be available)
+
+Working with change feed:
+
+[Using change feed with Azure Functions](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed-functions)
+
+[Using change feed with change feed processor](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed-processor)
 
 
 ## Develop Solutions That Use Blob Storage
