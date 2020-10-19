@@ -882,7 +882,32 @@ Write-Host "Press [ENTER] to continue ..."
 * Azure Service Bus
 * Azure Queues
 
+### Technology Selection
+
+Storage queues
+
+* store over 80 GB of messages in a queue.
+* track progress for processing a message inside of the queue. This is useful if the worker processing a message crashes. A subsequent worker can then use that information to continue from where the prior worker left off.
+* server side logs of all of the transactions executed against your queues.
+
+Service Bus queues
+
+* receive messages without having to poll the queue. (long-polling with supported TCP-based protocols)
+* Your solution requires the queue to provide a guaranteed first-in-first-out (FIFO) ordered delivery.
+* automatic duplicate detection.
+* process messages as parallel long-running streams
+* transactional behavior and atomicity when sending or receiving multiple messages from a queue.
+* messages that can exceed 64 KB but will not likely approach the 256 KB limit
+* role-based access model to the queues, and different rights/permissions for senders and receivers
+* queue size will not grow larger than 80 GB.
+* AMQP 1.0 standards-based messaging protocol.
+* planning on an eventual migration from queue-based point-to-point communication to a message exchange pattern
+* support the "At-Most-Once" delivery guarantee
+* publish and consume batches of messages.
+
 ### Implement Solutions that use Azure Service Bus
+
+* managed enterprise integration message broker
 
 Service Bus is intended for traditional enterprise applications.
 
@@ -900,9 +925,208 @@ Secure communication across hybrid cloud solutions and can connect existing on-p
 * at least once delivery
 * optional in-order delivery
 
+* Namespaces: container for all messaging components. Multiple queues and topics can be in a single namespace, and namespaces often serve as application containers.
+* Queues: Messages are sent to and received from queues.
+* Topics: publish/subscribe scenarios.
 
+Service Bus queues support a brokered messaging communication model. When using queues, components of a distributed application do not communicate directly with each other; instead they exchange messages via a queue, which acts as an intermediary (broker)
 
+#### Azure Portal
 
+Integration > Service Bus
 
+Get connection string
+
+Service bus > Shared access policies > RootManageSharedAccessKey
+
+Create a queue in the Azure portal
+
+Service Bus Namespace > Queues > Add > ... > Create
+
+#### CLI
+
+Create a resource group
+
+`az group create --name az204servicebus --location westus2`
+
+Create service bus namespace
+
+`az servicebus namespace create --resource-group az204servicebus --name az204learnservicebuscli --location westus2`
+
+Create a queue
+
+`az servicebus queue create --resource-group az204servicebus --namespace-name az204learnservicebuscli --name queuecli`
+
+#### PowerShell
+
+Create a resource group
+
+`New-AzResourceGroup –Name ContosoRG –Location eastus`
+
+Create service bus namespace
+
+`New-AzServiceBusNamespace -ResourceGroupName ContosoRG -Name ContosoSBusNS -Location eastus`
+
+Create a queue
+
+`New-AzServiceBusQueue -ResourceGroupName ContosoRG -NamespaceName ContosoSBusNS -Name ContosoOrdersQueue`
+
+Get connection string
+
+`Get-AzServiceBusKey -ResourceGroupName ContosoRG -Namespace ContosoSBusNS -Name RootManageSharedAccessKey`
+
+Send messages to the queue
+
+````c#
+queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
+
+// Create a new message to send to the queue.
+string messageBody = $"Message {i}";
+var message = new Message(Encoding.UTF8.GetBytes(messageBody));
+
+// Send the message to the queue.
+await queueClient.SendAsync(message);
+````
+
+Receive messages from the queue
+
+````c#
+  // Configure the message handler options in terms of exception handling, number of concurrent messages to deliver, etc.
+  var messageHandlerOptions = new MessageHandlerOptions(ExceptionReceivedHandler)
+  {
+      // Maximum number of concurrent calls to the callback ProcessMessagesAsync(), set to 1 for simplicity.
+      // Set it according to how many messages the application wants to process in parallel.
+      MaxConcurrentCalls = 1,
+
+      // Indicates whether the message pump should automatically complete the messages after returning from user callback.
+      // False below indicates the complete operation is handled by the user callback as in ProcessMessagesAsync().
+      AutoComplete = false
+  };
+
+  // Register the function that processes messages.
+  queueClient.RegisterMessageHandler(ProcessMessagesAsync, messageHandlerOptions);
+````
+
+#### Service Bus Topics and Subscriptions
+
+#### Portal
+
+Service Bus Namespace > Topics > Add > ... > Create
+
+Topic > Subscriptions > Add > ... > Create
+
+#### CLI
+
+Create a topic
+
+`az servicebus topic create --resource-group az204servicebus   --namespace-name az204learnservicebuscli --name topic2`
+
+Create subscriptions
+
+`az servicebus topic subscription create --resource-group az204servicebus --namespace-name az204learnservicebuscli --topic-name topic2 --name sub2a`
+
+`az servicebus topic subscription create --resource-group az204servicebus --namespace-name az204learnservicebuscli --topic-name topic2 --name sub2b`
+
+Create a filter on subscription 2a
+
+`az servicebus topic subscription rule create --resource-group az204servicebus --namespace-name az204learnservicebuscli --topic-name topic2 --subscription-name sub2a --name MyFilter --filter-sql-expression "StoreId IN ('Store1','Store2','Store3')"`
+
+Send messages to the topic
+
+````c#
+topicClient = new TopicClient(ServiceBusConnectionString, TopicName);
+
+// Create a new message to send to the topic.
+string messageBody = $"Message {i}";
+var message = new Message(Encoding.UTF8.GetBytes(messageBody));
+
+// Write the body of the message to the console.
+Console.WriteLine($"Sending message: {messageBody}");
+
+// Send the message to the topic.
+await topicClient.SendAsync(message);
+````
+
+Receive messages from the subscription
+
+````c#
+subscriptionClient = new SubscriptionClient(ServiceBusConnectionString, TopicName, SubscriptionName);
+
+// Configure the message handler options in terms of exception handling, number of concurrent messages to deliver, etc.
+var messageHandlerOptions = new MessageHandlerOptions(ExceptionReceivedHandler)
+{
+    // Maximum number of concurrent calls to the callback ProcessMessagesAsync(), set to 1 for simplicity.
+    // Set it according to how many messages the application wants to process in parallel.
+    MaxConcurrentCalls = 1,
+
+    // Indicates whether the message pump should automatically complete the messages after returning from user callback.
+    // False below indicates the complete operation is handled by the user callback as in ProcessMessagesAsync().
+    AutoComplete = false
+};
+
+// Register the function that processes messages.
+subscriptionClient.RegisterMessageHandler(ProcessMessagesAsync, messageHandlerOptions);
+
+static async Task ProcessMessagesAsync(Message message, CancellationToken token)
+{
+  // Process the message.
+  Console.WriteLine($"Received message: SequenceNumber:{message.SystemProperties.SequenceNumber} Body:{Encoding.UTF8.GetString(message.Body)}");
+  ...
+````
 
 ### Implement Solutions that use Azure Queue Storage Queues
+
+* Service for storing large numbers of messages.
+* Access messages with authenticated calls using HTTP or HTTPS.
+* A queue message can be up to 64 KB in size.
+* A queue's total capacity limit of a storage account.
+* Use Case: create a backlog of work to process asynchronously.
+
+Concepts:
+
+* Storage account: access point
+* Queue: contains a set of messages
+* Message: any format, of up to 64 KB.
+   * pre v2017-07-29 max TTL is 7 days
+   * v2017-07-29 or later max TTL can be any positive number, or -1 indicating that the message doesn't expire
+   * default: 7 days
+
+#### Create a queue and add a message with the Azure portal
+
+Create a queue
+
+Storage Account > Queue service > Queues Add
+
+* Add a message: A message can be up to 64 KB in size.
+* View message properties
+* Dequeue a message
+
+Retrieve connection string and set a Environment Variable
+
+`setx AZURE_STORAGE_CONNECTION_STRING "<yourconnectionstring>`
+
+````c#
+// Get the connection string from app settings
+string connectionString = ConfigurationManager.AppSettings["StorageConnectionString"];
+
+// Instantiate a QueueClient which will be used to create and manipulate the queue
+QueueClient queueClient = new QueueClient(connectionString, queueName);
+
+await theQueue.CreateIfNotExistsAsync();
+
+// insert never expiring message
+await theQueue.SendMessageAsync(newMessage, default, TimeSpan.FromSeconds(-1), default);
+
+// get queue length
+QueueProperties properties = queueClient.GetProperties();
+// Retrieve the cached approximate message count.
+int cachedMessagesCount = properties.ApproximateMessagesCount;
+
+// Peek at the next message
+PeekedMessage[] peekedMessage = queueClient.PeekMessages();
+
+// dequeue
+QueueMessage[] retrievedMessage = await theQueue.ReceiveMessagesAsync(1);
+string theMessage = retrievedMessage[0].MessageText;
+await theQueue.DeleteMessageAsync(retrievedMessage[0].MessageId, retrievedMessage[0].PopReceipt);
+````

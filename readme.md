@@ -10,3 +10,56 @@
 
 [Connect to and consume Azure services and third-party services (25-30%)](05_Connect_to_and_Consume_Azure_services_and_Third-party_Services.md)
 
+## Overview of services covered in AZ-204
+
+* Analytics
+    * Event Hubs: receive telemtry from millions of devices
+* Compute
+    * API Apps
+    * App Service
+    * Azure Functions
+    * Cloud Services
+    * Container Instances
+    * Linux Virtual Machines
+    * Web Apps
+    * Windows Virtual Machines
+* Containers
+    * API Apps
+    * Azure Functions
+    * Container Instances
+    * Container Registry
+    * Web Apps
+* Databases
+    * Azure Comsmos DB
+* Identity
+    * Azure Active Directory (AD)
+* Integration
+    * API Management
+    * Event Grid
+    * Logic Apps
+    * Service Bus
+* Management
+    * ARM Templates
+    * Azure Monitor
+* Mobile
+    * App Service
+    * Notification Hubs
+* Security
+    * Azure Active Directory (AD)
+    * Key Vault
+* Storage
+    * Blob Storage
+    * Queue Storage
+    * Storage
+* Web
+    * API Apps
+    * App Service
+    * Web Apps for Containers
+    * Web Apps
+
+## Arm Templates
+
+Azure Resource Manager templates are JavaScript Object Notation (JSON) files that define the infrastructure and configuration for a project.
+
+https://docs.microsoft.com/en-us/azure/azure-resource-manager/templates/overview
+
