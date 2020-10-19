@@ -359,11 +359,11 @@ public static void Counter([EntityTrigger] IDurableEntityContext ctx)
 
 #### Create a Durable Function
 
-VS 2019 > New > Project . Azure Functions > Empty
+VS 2019 > New > Project > Azure Functions > Empty
 
 Add > New Azure Function > Azure Function > Add
 
-Durable FUnctions Orchestration > OK
+Durable Functions Orchestration > OK
 
 
 ````c#
