@@ -10,6 +10,8 @@
 
 [Connect to and consume Azure services and third-party services (25-30%)](05_Connect_to_and_Consume_Azure_services_and_Third-party_Services.md)
 
+[Addendum and Miscellany](Addendum.md)
+
 ## Overview of services covered in AZ-204
 
 * Analytics
